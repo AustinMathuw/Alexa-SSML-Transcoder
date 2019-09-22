@@ -1,6 +1,3 @@
-[![Build Status](https://travis-ci.org/bespoken/encoder.svg?branch=master)](https://travis-ci.org/bespoken/encoder)
-[![Coverage Status](https://coveralls.io/repos/github/XappMedia/BespokenEncoder/badge.svg?branch=master)](https://coveralls.io/github/XappMedia/BespokenEncoder?branch=master)
-
 # encoder
 
 A simple microservice for encoding raw audio to MP3.
@@ -52,34 +49,6 @@ curl -X POST \
   -H 'targetkey: UnitTestOutput-encoded.mp3'
 ```
 
-# Building
-
-The project is written in TypeScript and node. With NPM installed, building the project is simply:
-
-``` bash
-cd ./server
-npm install
-./node_modules/typescript/bin/tsc -p .
-```
-
-Or if typescript is installed globally just:
-
-``` bash
-cd ./server
-npm install
-tsc -p .
-```
-
-The output will be in:
-
-``` bash 
-./server/outputs/source/main/
-```
-
-# Docker
-
-The top-level `./dockerbuild` directory contains a more lightweight docker file that uses the baseline docker image as a base.  The baseline Dockerfile is in `./dockerbuild/baseline` which is responsible for installing all the necessary components needed to install the server on a Docker image.  It will also pull he current Master repo from git, install, and build it which will make it ready to run for any image that uses it.  The baseline is pointing to the repo `xappmedia/bespoken-encoder` and can be built with the command
-
-``` bash
-docker build -t xappmedia/bespoken-encoder ./dockerbuild/baseline
-```
+### Installing FFMPEG
+1. Go [https://www.johnvansickle.com/ffmpeg/](here) to get static version of FFMPEG.
+2. `tar xvf ffmpeg-git-amd64-static.tar.xz`
