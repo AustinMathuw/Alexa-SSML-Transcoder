@@ -1,161 +1,73 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const request = require("request");
-const fs = require("fs");
-const tmp = require("tmp");
-const path = require("path");
-const cprocess = require("child_process");
-const aws = require("aws-sdk");
-var Encoder;
-(function (Encoder) {
-    function encode(params, callback) {
-        downloadAndEncode(params, function (err, mp3file) {
-            if (err != null) {
-                callback(err, null);
-            }
-            else {
-                sendOffToBucket(mp3file, params, function (err, url) {
-                    fs.unlink(mp3file, (err) => {
-                        if (err) {
-                            console.error("Unable to delete mp3 file " + mp3file + ". Err message: " + err.message);
-                        }
-                    });
-                    callback(err, url);
-                });
-            }
-        });
+const Encoder = require("./serverEncoder");
+const PARAM_ACCESS_ID = "accessKeyID".toLocaleLowerCase();
+const PARAM_ACCESS_SECRET_KEY = "accessSecretKey".toLocaleLowerCase();
+const PARAM_AWS_REGION = "awsRegion".toLocaleLowerCase();
+const PARAM_FILTER_VOLUME = "filterVolume".toLocaleLowerCase();
+const PARAM_SOURCE_URL = "sourceUrl".toLocaleLowerCase();
+const PARAM_TARGET_BUCKET = "targetBucket".toLocaleLowerCase();
+const PARAM_TARGET_KEY = "targetKey".toLocaleLowerCase();
+
+
+function checkHeaders(headers, response) {
+    checkParameter(headers[PARAM_SOURCE_URL], response, "The header must include a \"sourceurl\" to the sound file.");
+    checkParameter(headers[PARAM_TARGET_BUCKET], response, "The header must contain a URL to the S3 bucket to write to.");
+    checkParameter(headers[PARAM_TARGET_KEY], response, "The header must contain an S3 key for access to write the file.");
+}
+function checkParameter(parameter, response, error) {
+    if (parameter == null) {
+        response.statusCode = 400;
+        response.statusMessage = error;
+        throw new Error(error);
     }
-    Encoder.encode = encode;
-    ;
-    function sendOffToBucket(fileUri, params, callback) {
-        fs.readFile(fileUri, { encoding: null }, function (err, data) {
-            let s3 = new aws.S3({
-                accessKeyId: params.accessKeyId,
-                secretAccessKey: params.accessSecret,
-                region: params.awsRegion,
-            });
-            let putParams = { Bucket: params.targetBucket, Key: params.targetKey, Body: data, ACL: "public-read" };
-            s3.putObject(putParams, function (err, data) {
-                if (err) {
-                    callback(err, null);
-                    return;
-                }
-                let url = urlForKey(params.targetBucket, params.targetKey);
-                callback(err, url);
-            });
-        });
-    }
-    Encoder.sendOffToBucket = sendOffToBucket;
-    function downloadAndEncode(params, callback) {
-        saveTempFile(params.sourceUrl, function (error, fileUri) {
-            if (error) {
-                callback(Error("Unable to download and save file at path " + params.sourceUrl + ". Error: " + error.message), null);
-            }
-            else {
-                convertFile(fileUri, params, function (error, outputPath) {
-                    fs.unlink(fileUri, (err) => {
-                        if (err) {
-                            console.error("Unable to delete file " + fileUri + ". Error message: " + err.message);
-                        }
-                    });
-                    callback(error, outputPath);
-                });
-            }
-        });
-    }
-    Encoder.downloadAndEncode = downloadAndEncode;
-    function convertFile(inputFile, params, callback) {
-        let normalizedPath = path.normalize(inputFile);
-        let options = {
-            postfix: ".mp3"
+}
+
+exports.handler =  function(event, context) {
+	var headers = event.headers;
+	const response = {
+		statusCode: 0,
+		statusMessage: "",
+		body: ""
+	};
+	try {
+		checkHeaders(headers, response);
+	}
+	catch (e) {
+		return response;
+	}
+	let musicSourceUrl = headers[PARAM_SOURCE_URL];
+	let targetBucket = headers[PARAM_TARGET_BUCKET];
+	let targetKey = headers[PARAM_TARGET_KEY];
+	let accessKeyId = headers[PARAM_ACCESS_ID];
+	let accessSecret = headers[PARAM_ACCESS_SECRET_KEY];
+	let awsRegion = headers[PARAM_AWS_REGION] || "us-east-1";
+	let filterVolume = 1.0;
+	if (PARAM_FILTER_VOLUME in headers) {
+		filterVolume = parseFloat(headers[PARAM_FILTER_VOLUME]);
+	}
+	let params = {
+		sourceUrl: musicSourceUrl,
+		targetBucket: targetBucket,
+		targetKey: targetKey,
+		filterVolume: filterVolume,
+		accessKeyId: accessKeyId,
+		accessSecret: accessSecret,
+		awsRegion: awsRegion
+	};
+	return Encoder.encode(params).then(url => {
+		response.statusCode = 200;
+		response.statusMessage = "OK";
+		response.headers = {
+            'Content-Type': 'text/plain',
         };
-        let filterVolume = 1.0;
-        if (params && params.filterVolume) {
-            filterVolume = params.filterVolume;
-        }
-        tmp.tmpName(options, function (error, outputPath) {
-            if (error) {
-                callback(error, null);
-                return;
-            }
-            cprocess.execFile("ffmpeg", ["-i", normalizedPath, "-codec:a", "libmp3lame", "-b:a", "48k", "-ar", "16000", "-af", "volume=" + filterVolume, outputPath], function (error, stdout, stderr) {
-                if (error) {
-                    fs.unlink(outputPath, (error) => {
-                        if (error) {
-                            console.error("Unable to delete " + outputPath + ". Full error: " + error.message);
-                        }
-                    });
-                    outputPath = null;
-                }
-                if (error) {
-                    console.error("Error thrown: " + error.message);
-                    error = Error("Unable to encode the file to mp3.");
-                }
-                callback(error, outputPath);
-            });
-        });
-    }
-    Encoder.convertFile = convertFile;
-    function saveTempFile(fileUrl, callback) {
-        let postfix = getExtension(fileUrl, ".tmp");
-        let options = {
-            postfix: getExtension(fileUrl, ".tmp"),
-            keep: true
-        };
-        tmp.file(options, function (err, inputPath, fileDescriptor) {
-            let file = fs.createWriteStream(inputPath);
-            let positive = function (response) {
-                if (response.statusCode === 200) {
-                    try {
-                        response.pipe(file);
-                        file.on("finish", function () {
-                            file.close();
-                            callback(null, inputPath);
-                        });
-                    }
-                    catch (e) {
-                        console.error("Error thrown: " + e.message);
-                        callback(e, null);
-                    }
-                }
-                else {
-                    callback(Error("Could not retrieve file from " + fileUrl), null);
-                }
-            };
-            let negative = function (error) {
-                if (error) {
-                    console.error("Error thrown: " + error.message);
-                }
-                callback(error, null);
-            };
-            networkGet(fileUrl, positive, negative);
-        });
-    }
-    function networkGet(fileUrl, callback, errorCallback) {
-        if (isWebUrl(fileUrl)) {
-            request.get(fileUrl)
-                .on("response", callback)
-                .on("error", errorCallback);
-        }
-        else {
-            errorCallback(Error("The url " + fileUrl + " is not a supported URI."));
-        }
-    }
-    function isWebUrl(url) {
-        if (!url) {
-            return false;
-        }
-        return /^((http[s]?|ftp):\/{2})([\w-]+\.)+(\w+)(:\d{1,5})?\/?(\w*\/?)*(\.\w*)?(\??.*)$/.test(url);
-    }
-    function getExtension(url, fallback) {
-        let extension = (url) ? url.substr(url.lastIndexOf(".")) : "";
-        if (extension.length === 0) {
-            extension = fallback;
-        }
-        return extension;
-    }
-    function urlForKey(bucket, key) {
-        return "https://s3.amazonaws.com/" + bucket + "/" + key;
-    }
-})(Encoder = exports.Encoder || (exports.Encoder = {}));
-//# sourceMappingURL=serverEncoder.js.map
+		if (url) {
+			response.body = {
+				url: url
+			};
+		}
+		return response;
+	}).catch(err => {
+		response.statusCode = 400;
+		response.statusMessage = err.message;
+		return response;
+	});
+};

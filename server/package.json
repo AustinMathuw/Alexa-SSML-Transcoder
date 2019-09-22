@@ -4,8 +4,8 @@
   "engines": {
     "node": ">= 6.3.1"
   },
-  "devDependencies": {
-    "aws-sdk": "^2.6.6",
-    "request": "^2.75.0",
+  "dependencies": {
+    "request": "^2.88.0",
+    "tmp": "^0.1.0"
   }
 }

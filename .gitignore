@@ -6,8 +6,8 @@
 .idea/
 
 # generated
-ffmpeg/
-node_modules/
+server/ffmpeg/
+server/node_modules/
 outputs/
 typings/globals
 
